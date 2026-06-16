@@ -41,16 +41,23 @@ const Speech = (() => {
     const preferredTerms = [
       'google', 'microsoft', 'premium', 'narrator', 'alloy',
       'nora', 'samantha', 'daniel', 'emma', 'joanna', 'amy', 'zira',
-      'felix', 'olivia', 'matthew', 'salli', 'alloy', 'jonathan', 'kendra',
+      'felix', 'olivia', 'matthew', 'salli', 'jonathan', 'kendra',
+      'wave', 'breeze', 'aria', 'angel', 'alloy', 'premium', 'natural',
+      'zira desktop', 'microsoft david', 'microsoft zira', 'google us english',
+      'english (united states)', 'english (united kingdom)', 'us english',
+      'uk english', 'british english', 'american english', 'premium english',
     ];
 
     return matches
       .map(({ voice, lang, name }) => {
         let score = 0;
-        if (lang === bcp47lc) score += 20;
+        if (lang === bcp47lc) score += 30;
         if (voice.default) score += 5;
-        if (lang.startsWith(prefix) && lang !== bcp47lc) score += 5;
-        if (langInfo.voicePrefix === 'en' && name.includes('english')) score += 4;
+        if (lang.startsWith(prefix) && lang !== bcp47lc) score += 10;
+        if (langInfo.voicePrefix === 'en' && (name.includes('english') || voice.lang.toLowerCase().startsWith('en'))) score += 10;
+        if (voice.localService) score += 3;
+        if (voice.voiceURI && voice.voiceURI.toLowerCase().includes('english')) score += 2;
+        if (name.includes('premium') || name.includes('alloy') || name.includes('natural')) score += 6;
         preferredTerms.forEach(term => {
           if (name.includes(term)) score += 3;
         });
@@ -145,9 +152,9 @@ const Speech = (() => {
     }
 
     const utter  = new SpeechSynthesisUtterance(text);
-    const defaultRate = langInfo.voicePrefix === 'en' ? 0.85 : 0.95;
+    const defaultRate = langInfo.voicePrefix === 'en' ? 0.85 : 0.92;
     utter.rate   = Math.max(0.75, Math.min(rate || defaultRate, 1.0));
-    utter.pitch  = 1.05;
+    utter.pitch  = 1.0;
     utter.volume = 1;
     utter.lang   = langInfo.bcp47;
     utter.voice  = matched;

@@ -51,6 +51,7 @@ start.bat       Windows one-command launcher
 - **Translation is a second model call** inside `_translate_to_english()` in `app.py`. It only fires when the detected language is not English.
 - **IRAS scraping is cached and parallel.** Extracted page text is cached in-process per URL (`_page_texts_cache`), candidate pages are fetched concurrently, and scraping is skipped entirely when no sitemap URL matches the query (e.g. greetings). The sitemap and model are pre-warmed at startup, and Ollama keeps the model loaded for 30 minutes between requests.
 - **User bubble is shown immediately**, then updated with `userTranslation` after the server responds via `UI.addTranslation()`.
+- **Welcome flow is fully static and client-driven.** On load (and on 🔄 New chat), `app.js → startWelcomeFlow()` renders guide bubbles from `prompts.py → UI_STRINGS`/`SERVICES` (served by `GET /services`): language picker → localized greeting + service topics → tap-to-ask guiding questions. No model call, so it is instant; guide bubbles are never added to `conversationHistory`. Picking a language also sets the input-language dropdown, which pins STT and reply language.
 
 ---
 
@@ -60,6 +61,7 @@ start.bat       Windows one-command launcher
 |--------|-------|-------------|
 | GET | `/` | Serves the chat page |
 | GET | `/languages` | Returns `LANGUAGES` dict as JSON |
+| GET | `/services` | Returns `{ ui, services }` — localized greeting + topic/guiding-question config for the welcome flow |
 | POST | `/chat` | Accepts `{ messages }`, returns reply + translations |
 
 ### POST /chat response shape

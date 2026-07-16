@@ -333,3 +333,68 @@ header {
   #text-input, .send-btn { height: 46px; }
   .settings-row { flex-direction: column; align-items: flex-start; }
 }
+
+/* ── Guide bubbles: welcome flow chips ─────────────────────────────────── */
+.msg.guide .bubble { white-space: pre-line; }
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  max-width: 85%;
+}
+
+.chip {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 7px 14px;
+  font-size: 0.8rem;
+  font-family: inherit;
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.chip:hover {
+  border-color: var(--accent);
+  background: var(--border);
+}
+
+.chips-done .chip {
+  opacity: 0.45;
+  cursor: default;
+  pointer-events: none;
+}
+
+.chips-done .chip-selected {
+  opacity: 1;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ── New chat button (header) ──────────────────────────────────────────── */
+#new-chat-btn {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 0.78rem;
+  font-family: inherit;
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+#new-chat-btn:hover { border-color: var(--accent); }
+
+/* ── Structured replies ────────────────────────────────────────────────── */
+/* Preserve the model's line breaks (numbered points, follow-up question) */
+.bubble { white-space: pre-line; }
+
+.source a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.source a:hover { text-decoration: underline; }

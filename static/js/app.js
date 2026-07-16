@@ -9,6 +9,7 @@
 
 // ── State ──────────────────────────────────────────────────────────────────
 let languages           = {};   // populated from /languages on load
+let guideConfig          = null; // populated from /services on load
 let conversationHistory  = [];  // [{ role, content }, ...]
 let selectedInputLang    = 'auto';
 const MAX_HISTORY        = 20;
@@ -16,7 +17,9 @@ const MAX_HISTORY        = 20;
 // ── Boot ───────────────────────────────────────────────────────────────────
 async function init() {
   await loadLanguages();
+  await loadGuideConfig();
   bindEvents();
+  startWelcomeFlow();
 }
 
 // ── Load language config from backend ─────────────────────────────────────
@@ -31,6 +34,157 @@ async function loadLanguages() {
   }
 }
 
+async function loadGuideConfig() {
+  try {
+    const res = await fetch('/services');
+    guideConfig = await res.json();   // { ui: {...}, services: {...} }
+  } catch (e) {
+    guideConfig = null;               // welcome flow is skipped; chat still works
+  }
+}
+
+// ── Welcome flow: language → greeting → topics → guiding questions ────────
+const WELCOME_TEXT = '👋 Welcome! Please select your language · 请选择语言:';
+
+// Spoken or typed names that select each language while the picker is open.
+const LANG_ALIASES = {
+  en:  ['english'],
+  zh:  ['chinese', 'mandarin', '中文', '华语', 'zhongwen', 'huayu'],
+  ta:  ['tamil', 'தமிழ்'],
+  th:  ['thai', 'ไทย'],
+  vi:  ['vietnamese', 'viet', 'tiếng việt'],
+  id:  ['indonesian', 'indonesia', 'bahasa indonesia'],
+  ms:  ['malay', 'melayu', 'bahasa melayu'],
+  fil: ['filipino', 'tagalog'],
+  my:  ['burmese', 'myanmar', 'မြန်မာ'],
+};
+
+let pendingLangPicker = null;   // the picker bubble element while a choice is pending
+let welcomeAnnounced  = false;  // true once the welcome has actually been spoken
+
+const WELCOME_SPEECH = 'Welcome! Please select your language.';
+
+function startWelcomeFlow() {
+  if (!guideConfig || !Object.keys(languages).length) return;
+
+  const chips = Object.entries(languages).map(([code, l]) => ({
+    value: code,
+    label: `${l.flag} ${l.name}`,
+  }));
+
+  pendingLangPicker = UI.addGuideBubble(WELCOME_TEXT, chips, (code) => {
+    pendingLangPicker = null;
+    setChatLanguage(code);
+    showGreeting(code);
+  });
+
+  UI.setTranscript('Tap a language above — or tap the mic and say it (e.g. "Tamil")');
+
+  // Read the welcome aloud. Browsers block TTS until the user's first
+  // interaction with the page, so this first attempt may stay silent —
+  // the fallback below retries on the first gesture.
+  welcomeAnnounced = false;
+  speakGuide(WELCOME_SPEECH, 'en', () => { welcomeAnnounced = true; });
+
+  document.removeEventListener('pointerdown', retryWelcomeSpeech, true);
+  document.removeEventListener('keydown', retryWelcomeSpeech, true);
+  document.addEventListener('pointerdown', retryWelcomeSpeech, true);
+  document.addEventListener('keydown', retryWelcomeSpeech, true);
+}
+
+// First user gesture unlocks TTS: speak the welcome if it was blocked on load.
+function retryWelcomeSpeech(e) {
+  document.removeEventListener('pointerdown', retryWelcomeSpeech, true);
+  document.removeEventListener('keydown', retryWelcomeSpeech, true);
+
+  if (welcomeAnnounced || !pendingLangPicker) return;
+  // If this gesture is already a language choice, the localized greeting
+  // will be spoken instead — don't talk over it.
+  if (e.target?.closest?.('.chip')) return;
+
+  speakGuide(WELCOME_SPEECH, 'en', () => { welcomeAnnounced = true; });
+}
+
+// Speak guide text aloud, respecting the auto-speak setting.
+function speakGuide(text, langCode, onSpokenStart) {
+  if (!UI.getAutoSpeak()) return;
+  const langInfo = languages[langCode];
+  if (!langInfo) return;
+
+  // Strip emoji/flags and chip separators so TTS reads only the words.
+  const clean = text.replace(/[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}·]/gu, '').replace(/\s+/g, ' ').trim();
+  if (!clean) return;
+
+  Speech.speak(clean, langInfo, UI.getVoiceSpeed(), {
+    onStart: () => {
+      onSpokenStart?.();
+      UI.setStatus('speaking', '🔊 Speaking…');
+    },
+    onEnd:   () => UI.setStatus('', 'ready'),
+    onNoVoice: () => {},   // welcome speech is optional — fail silently
+  });
+}
+
+// Match spoken/typed text (e.g. "Tamil", "中文") to a language code.
+function matchLanguageFromText(text) {
+  const t = text.toLowerCase().trim();
+  for (const [code, info] of Object.entries(languages)) {
+    if (t.includes(info.name.toLowerCase())) return code;
+  }
+  for (const [code, aliases] of Object.entries(LANG_ALIASES)) {
+    if (aliases.some((a) => t.includes(a))) return code;
+  }
+  return null;
+}
+
+function setChatLanguage(code) {
+  selectedInputLang = code;
+  const select = document.getElementById('input-lang-select');
+  if (select) select.value = code;
+}
+
+// Localized string with English fallback
+function uiText(lang, key) {
+  const ui = guideConfig.ui;
+  return (ui[lang] && ui[lang][key]) || ui.en[key];
+}
+
+function showGreeting(lang) {
+  const topicChips = Object.entries(guideConfig.services).map(([key, svc]) => ({
+    value: key,
+    label: `${svc.icon} ${svc.name[lang] || svc.name.en}`,
+  }));
+
+  const text = `${uiText(lang, 'greeting')}\n\n${uiText(lang, 'choose_topic')}`;
+  UI.addGuideBubble(text, topicChips, (topicKey) => {
+    showGuidingQuestions(lang, topicKey);
+  });
+
+  // Read the localized greeting aloud (triggered by a user gesture, so TTS
+  // is allowed even in browsers that block speech before interaction).
+  speakGuide(text, lang);
+}
+
+function showGuidingQuestions(lang, topicKey) {
+  const svc = guideConfig.services[topicKey];
+  const questions = svc.questions[lang] || svc.questions.en;
+
+  const chips = questions.map((q) => ({ value: q, label: q }));
+  UI.addGuideBubble(uiText(lang, 'questions_intro'), chips, (question) => {
+    handleUserMessage(question);
+  });
+}
+
+// ── New chat: reset history and restart the welcome flow ──────────────────
+function startNewChat() {
+  if (Speech.getIsSpeaking()) Speech.stopSpeaking();
+  conversationHistory = [];
+  UI.clearChat();
+  UI.setTranscript('Tap the mic to start speaking…');
+  UI.setStatus('', 'ready');
+  startWelcomeFlow();
+}
+
 // ── Event Binding ──────────────────────────────────────────────────────────
 function bindEvents() {
   document.getElementById('mic-btn')
@@ -38,6 +192,9 @@ function bindEvents() {
 
   document.getElementById('send-btn')
     .addEventListener('click', sendTextMessage);
+
+  document.getElementById('new-chat-btn')
+    ?.addEventListener('click', startNewChat);
 
   document.getElementById('input-lang-select')
     .addEventListener('change', (e) => {
@@ -115,6 +272,20 @@ function sendTextMessage() {
 async function handleUserMessage(text) {
   if (!text.trim()) return;
 
+  // While the language picker is open, spoken or typed input picks the
+  // language ("Tamil", "中文", …) instead of being sent to the model.
+  if (pendingLangPicker) {
+    const code = matchLanguageFromText(text);
+    if (code) {
+      const chip = pendingLangPicker.querySelector(`.chip[data-value="${code}"]`);
+      UI.setTranscript('Tap the mic to start speaking…');
+      if (chip) { chip.click(); return; }
+    }
+    // Not a language name — treat it as a real question and dismiss the picker.
+    pendingLangPicker.querySelector('.chip-row')?.classList.add('chips-done');
+    pendingLangPicker = null;
+  }
+
   selectedInputLang = UI.getTextInputLang();
   const effectiveInputLang = selectedInputLang !== 'auto' && languages[selectedInputLang]
     ? selectedInputLang
@@ -153,7 +324,7 @@ async function handleUserMessage(text) {
 
     const msgEl = UI.addBubble('ai', data.reply, data.langInfo, (playBtn) => {
       handlePlayButton(data.reply, data.langInfo, playBtn);
-    });
+    }, data.sources);
 
     UI.setTranscript('Tap the mic to speak again…');
     UI.setStatus('', 'ready');

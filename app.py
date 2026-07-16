@@ -29,7 +29,10 @@ import requests
 from bs4 import BeautifulSoup
 from flask import Flask, request, jsonify, render_template
 from dotenv import load_dotenv
-from prompts import SYSTEM_PROMPT, MODEL, MAX_TOKENS, COMPLETION_MAX_TOKENS, LANGUAGES, detect_language
+from prompts import (
+    SYSTEM_PROMPT, MODEL, MAX_TOKENS, COMPLETION_MAX_TOKENS,
+    LANGUAGES, UI_STRINGS, SERVICES, detect_language,
+)
 
 # ── Load environment variables from .env ───────────────────────────────────
 load_dotenv(Path(__file__).parent / ".env", override=True)
@@ -109,18 +112,48 @@ def get_iras_sitemap_links() -> list[str]:
     return sorted(links)
 
 
+# Function words and domain tokens are excluded from matching. Domain tokens
+# ("iras", "gov", …) appear in every URL, so counting them ranks all pages
+# equally and lets alphabetically-early pages (careers/…) win the tie.
+STOPWORDS = {
+    "how", "do", "does", "did", "what", "when", "where", "which", "who", "why",
+    "is", "are", "was", "were", "be", "been", "can", "could", "should",
+    "would", "will", "shall", "may", "might", "must", "have", "has", "had",
+    "the", "an", "my", "me", "we", "our", "us", "you", "your", "they",
+    "their", "he", "she", "it", "its", "to", "for", "of", "in", "on", "at",
+    "by", "with", "from", "through", "into", "and", "or", "not", "no", "yes",
+    "if", "any", "some", "much", "many", "more", "need", "want", "get",
+    "please", "about", "there", "here", "this", "that", "these", "those",
+    "iras", "www", "gov", "sg", "https", "http", "com",
+}
+
+
 def tokenize(text: str) -> set[str]:
-    return {token.lower() for token in re.findall(r"\w+", text) if len(token) > 1}
+    return {
+        token.lower()
+        for token in re.findall(r"\w+", text)
+        if len(token) > 1 and token.lower() not in STOPWORDS
+    }
 
 
 def find_best_iras_pages(query: str, max_results: int = 5) -> list[str]:
     links = get_iras_sitemap_links()
     query_tokens = tokenize(query)
+    if not query_tokens:
+        return []
 
     scored = []
     for url in links:
-        lower_url = url.lower()
-        score = sum(2 for token in query_tokens if token in lower_url)
+        # Match only against the URL path, never the domain.
+        path = urlparse(url).path.lower()
+        slug_words = set(re.findall(r"[a-z0-9]+", path))
+
+        score = 0
+        for token in query_tokens:
+            if token in slug_words:
+                score += 3                    # exact slug word ("property")
+            elif len(token) >= 3 and token in path:
+                score += 1                    # partial ("pay" in "payments")
         if score:
             scored.append((score, url))
 
@@ -129,7 +162,8 @@ def find_best_iras_pages(query: str, max_results: int = 5) -> list[str]:
     if not scored:
         return []
 
-    scored.sort(key=lambda item: item[0], reverse=True)
+    # Highest score first; shorter (more general) pages win ties.
+    scored.sort(key=lambda item: (-item[0], len(item[1])))
     return [url for _, url in scored[:max_results]]
 
 
@@ -278,6 +312,31 @@ def get_languages():
     return jsonify(LANGUAGES)
 
 
+# Markdown-style links: keep the link text, drop the URL.
+_MD_LINK_RE = re.compile(r"\[([^\]]*)\]\(\s*https?://[^)]*\)")
+# Bare URLs, optionally wrapped in brackets/parentheses.
+_URL_RE = re.compile(r"[\(\[<]?\bhttps?://[^\s\)\]>]+[\)\]>]?")
+
+
+def _strip_urls(text: str) -> str:
+    """Remove inline URLs from a model reply (sources are sent separately)."""
+    text = _MD_LINK_RE.sub(r"\1", text)
+    text = _URL_RE.sub("", text)
+    # Tidy whitespace left behind by removed links.
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r" +([.,;:!?])", r"\1", text)
+    return text.strip()
+
+
+@app.route("/services")
+def get_services():
+    """
+    Return the guided-conversation config (localized greeting, service topics
+    and tap-to-ask guiding questions) used by the frontend welcome flow.
+    """
+    return jsonify({"ui": UI_STRINGS, "services": SERVICES})
+
+
 @app.route("/chat", methods=["POST"])
 def chat():
     """
@@ -350,7 +409,8 @@ def chat():
     if iras_source_text:
         effective_system_prompt += (
             "\n\nUse the following content from the official IRAS website to answer the user. "
-            "Cite the source URLs and keep the answer factual and concise.\n\n"
+            "Keep the answer factual. Do not copy URLs or web addresses into your reply — "
+            "the source links are shown to the user separately.\n\n"
             f"IRAS source content:\n{iras_source_text}"
         )
 
@@ -367,6 +427,11 @@ def chat():
     # Ensure the reply is not truncated; finish it if necessary.
     reply = _complete_reply(reply, detect_language(reply))
 
+    # The model is told not to include URLs, but small models don't always
+    # comply (and sometimes hallucinate links) — strip them defensively.
+    # Real source links are returned separately in "sources".
+    reply = _strip_urls(reply)
+
     # Detect the final language for the frontend after completion.
     lang_code = detect_language(reply)
     lang_info = LANGUAGES.get(lang_code, LANGUAGES["en"])
@@ -375,6 +440,7 @@ def chat():
         "reply":      reply,
         "lang":       lang_code,
         "langInfo":   lang_info,
+        "sources":    iras_source_urls,
     })
 
 

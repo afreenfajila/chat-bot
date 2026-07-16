@@ -113,10 +113,27 @@ const UI = (() => {
 
     div.appendChild(bubble);
 
-    if (source) {
+    if (source && source.length) {
       const src = document.createElement('div');
-      src.className   = 'source';
-      src.textContent = source;
+      src.className = 'source';
+      const urls = Array.isArray(source) ? source : [source];
+      src.append('📎 ');
+      urls.forEach((url, i) => {
+        if (i > 0) src.append(' · ');
+        const a = document.createElement('a');
+        a.href   = url;
+        a.target = '_blank';
+        a.rel    = 'noopener';
+        // Show the last URL path segment as a readable label
+        try {
+          a.textContent = decodeURIComponent(
+            new URL(url).pathname.split('/').filter(Boolean).pop() || url
+          ).replace(/[-_]/g, ' ');
+        } catch {
+          a.textContent = url;
+        }
+        src.appendChild(a);
+      });
       div.appendChild(src);
     }
 
@@ -129,6 +146,55 @@ const UI = (() => {
 
   function setPlayBtnState(pb, isPlaying) {
     if (pb) pb.textContent = isPlaying ? '⏸ stop' : '▶ play';
+  }
+
+  // ── Guide bubbles (welcome flow) ───────────────────────────────────────
+  /**
+   * Add an AI-styled bubble with tappable option chips below the text.
+   * Used for the welcome flow: language picker, service topics, and
+   * guiding questions. Not part of the conversation history.
+   * @param {string} text                       — bubble text
+   * @param {Array<{value:string,label:string}>} chips
+   * @param {Function} onSelect(value, chipEl)  — called on chip click
+   * @returns {HTMLElement} the .msg element
+   */
+  function addGuideBubble(text, chips, onSelect) {
+    el('empty-state')?.remove();
+
+    const win = el('chat-window');
+
+    const div = document.createElement('div');
+    div.className = 'msg ai guide';
+
+    const bubble = document.createElement('div');
+    bubble.className   = 'bubble';
+    bubble.textContent = text;
+    div.appendChild(bubble);
+
+    const row = document.createElement('div');
+    row.className = 'chip-row';
+    chips.forEach(({ value, label }) => {
+      const chip = document.createElement('button');
+      chip.className     = 'chip';
+      chip.textContent   = label;
+      chip.dataset.value = value;
+      chip.addEventListener('click', () => {
+        if (row.classList.contains('chips-done')) return;
+        row.classList.add('chips-done');
+        chip.classList.add('chip-selected');
+        onSelect(value, chip);
+      });
+      row.appendChild(chip);
+    });
+    div.appendChild(row);
+
+    win.appendChild(div);
+    win.scrollTop = win.scrollHeight;
+    return div;
+  }
+
+  function clearChat() {
+    el('chat-window').innerHTML = '';
   }
 
   return {
@@ -145,6 +211,8 @@ const UI = (() => {
     getAutoSpeak,
     addBubble,
     setPlayBtnState,
+    addGuideBubble,
+    clearChat,
   };
 
 })();

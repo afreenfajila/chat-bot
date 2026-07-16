@@ -1,246 +1,160 @@
 # VoiceChat — Multilingual AI Voice Assistant
 
-Speak or type in **English, Chinese, Tamil, Thai, Vietnamese, Indonesian, Malay, Filipino, or Burmese** — a local SEA-LION model (via Ollama) replies in the same language, both in text and voice. Non-English messages and replies automatically show an **English translation** below each chat bubble.
+VoiceChat is a Flask web app for multilingual voice conversations. It uses a local SEA-LION model served by Ollama, so you can speak or type in supported languages and receive replies in the same language with voice output.
+
+The app currently supports these languages:
+
+- English
+- Chinese (中文)
+- Tamil (தமிழ்)
+- Thai (ไทย)
+- Vietnamese (Tiếng Việt)
+- Indonesian (Bahasa Indonesia)
+- Malay (Bahasa Melayu)
+- Filipino (Tagalog)
+- Burmese (မြန်မာ)
+
+Non-English messages and replies also show an English translation below each chat bubble.
 
 ---
 
 ## Features
 
-- **Voice input & output** — speak via mic, hear replies via browser TTS
-- **9 languages** — English, Chinese (Simplified), Tamil, Thai, Vietnamese, Indonesian, Malay, Filipino, Burmese (SEA-LION's focus languages)
-- **Auto language detection** — no need to select a language manually
-- **English translations** — every non-English bubble shows its translation below
-- **Conversation history** — context is maintained across the full session
-- **Text input fallback** — type instead of speaking at any time
+- Voice input and voice output using the browser's speech APIs
+- Local model inference through Ollama, with no API key required
+- Automatic language detection for supported languages
+- English translations for non-English messages and replies
+- Text input fallback for typing instead of speaking
+- Conversation history for the active session
+
+---
+
+## Requirements
+
+- Python 3.9 or newer
+- Chrome or Edge for the best voice input experience
+- Ollama installed and running locally
 
 ---
 
 ## Quick Start
 
-### Prerequisites
-
-| Requirement | Version | Notes |
-|-------------|---------|-------|
-| Python | 3.9 or higher | [python.org](https://python.org) |
-| Browser | Chrome or Edge | Required for voice input (STT) |
-| Ollama | latest | [ollama.com](https://ollama.com) — runs the model locally |
-
----
-
-### Step 1 — Clone the repository
+### 1. Clone the repository
 
 ```bash
-git clone https://github.com/Afreen2907/multilingual-voice-chat-py.git
-cd multilingual-voice-chat-py
+git clone https://github.com/afreenfajila/chat-bot.git
+cd chat-bot
 ```
 
----
+### 2. Pull the model
 
-### Step 2 — Pull the local model
-
-Install [Ollama](https://ollama.com), then pull the chat model:
+Install Ollama and pull the SEA-LION model:
 
 ```bash
 ollama pull aisingapore/Gemma-SEA-LION-v4-4B-VL
 ```
 
-Optionally set a different model in `.env`:
+### 3. Install dependencies
 
+```bash
+pip install -r requirements.txt
 ```
-CHAT_MODEL=aisingapore/Gemma-SEA-LION-v4-4B-VL
-```
 
----
+### 4. Run the app
 
-### Step 3 — Run (single command)
+Windows:
 
-**Windows:**
 ```bat
 start.bat
 ```
 
-**Mac / Linux:**
+Mac / Linux:
+
 ```bash
-pip install -r requirements.txt && python app.py
+python app.py
 ```
 
-Open your browser → **http://localhost:5000**
-
-That's it. The script installs all dependencies and starts the server automatically.
+Open your browser at http://localhost:5000
 
 ---
 
 ## Project Structure
 
-```
-multilingual-voice-chat-py/
-│
-├── app.py               ← Flask server: routes, local model calls, translation
-├── prompts.py           ← AI prompt, model config, language definitions
-├── start.bat            ← Windows one-command launcher
-│
-├── .env                 ← Local settings: model name, port (never committed)
-├── .env.example         ← Template — copy to .env to get started
-├── requirements.txt     ← Python dependencies
-├── CLAUDE.md            ← Developer guide for working with Claude Code
-│
+```text
+chat-bot/
+├── app.py                # Flask routes, model calls, translation logic
+├── prompts.py            # Prompt text, model config, language definitions
+├── start.bat             # Windows launcher
+├── requirements.txt      # Python dependencies
 ├── templates/
-│   └── index.html       ← Main chat page (served by Flask)
-│
-└── static/
-    ├── css/
-    │   └── style.css    ← All styles (includes translation bubble styling)
-    └── js/
-        ├── app.js       ← Main controller: fetch /chat, manage history
-        ├── speech.js    ← Mic input (STT) + voice output (TTS)
-        └── ui.js        ← DOM updates: bubbles, translations, status bar
+│   └── index.html        # Main chat UI
+├── static/
+│   ├── css/style.css     # Styles
+│   └── js/
+│       ├── app.js        # Main client logic
+│       ├── speech.js     # Speech recognition and TTS
+│       └── ui.js         # DOM helpers
+└── CLAUDE.md             # Project notes for local development
 ```
 
 ---
 
 ## How It Works
 
-```
-User speaks/types  →  POST /chat  →  Ollama (local model)  →  reply text
-                                   ↓
-                        detect language
-                                   ↓
-                   (non-EN) translate reply + user message to English
-                                   ↓
-reply text  →  show bubble + translation  →  Web Speech API (TTS)  →  spoken aloud
-```
-
-- **Everything runs locally** — no API key, no data leaves your machine (except the IRAS website lookups).
-- **Language detection** runs server-side in `prompts.py → detect_language()`, using character-range patterns first and common-word patterns as a fallback.
-- **English translations** are generated by a second model call inside `_translate_to_english()` — only triggered for non-English content.
-- **Language config** is served via `GET /languages` so it's defined in one place only (`prompts.py`).
+1. The browser sends the conversation to the Flask app at /chat.
+2. The server detects the user language and calls the local Ollama model.
+3. The reply is returned in the same language and spoken aloud using browser TTS.
+4. If the detected language is not English, an English translation is shown beneath the bubble.
 
 ---
 
 ## Supported Languages
 
-| Language | Code | Flag | Voice (BCP-47) |
-|----------|------|------|----------------|
-| English  | `en` | 🇬🇧 | `en-US`        |
-| Chinese (Simplified) | `zh` | 🇨🇳 | `zh-CN` |
-| Tamil    | `ta` | 🇮🇳 | `ta-IN`        |
-| Thai     | `th` | 🇹🇭 | `th-TH`        |
-| Vietnamese | `vi` | 🇻🇳 | `vi-VN`      |
-| Indonesian | `id` | 🇮🇩 | `id-ID`      |
-| Malay    | `ms` | 🇲🇾 | `ms-MY`        |
-| Filipino | `fil` | 🇵🇭 | `fil-PH`      |
-| Burmese  | `my` | 🇲🇲 | `my-MM`        |
+| Language | Code | Flag | Voice prefix |
+|----------|------|------|--------------|
+| English | en | 🇬🇧 | en |
+| Chinese | zh | 🇨🇳 | zh |
+| Tamil | ta | 🇮🇳 | ta |
+| Thai | th | 🇹🇭 | th |
+| Vietnamese | vi | 🇻🇳 | vi |
+| Indonesian | id | 🇮🇩 | id |
+| Malay | ms | 🇲🇾 | ms |
+| Filipino | fil | 🇵🇭 | fil |
+| Burmese | my | 🇲🇲 | my |
 
 ---
 
-## English Translation Feature
+## Environment Variables
 
-When a non-English message is sent or received, an English translation is shown in muted italic text below the chat bubble.
+The app uses the following optional environment variables:
 
-- **User bubble** — translation appears after the server responds (same round-trip)
-- **AI bubble** — translation is included alongside the reply
-- **English messages** — no translation shown, no extra API call made
-
-Example chat view:
-
-```
-┌─────────────────────────────────┐  🇫🇷 FR
-│ Bonjour, comment allez-vous?    │
-│ Hello, how are you?             │  ← translation
-└─────────────────────────────────┘
-
-┌─────────────────────────────────┐  🇫🇷 FR  ▶ play
-│ Je vais très bien, merci !      │
-│ I'm doing very well, thank you! │  ← translation
-└─────────────────────────────────┘
-```
-
----
-
-## Customisation
-
-All AI-related settings live in **`prompts.py`**:
-
-| What to change | Where in prompts.py |
-|----------------|---------------------|
-| AI behaviour / tone | `SYSTEM_PROMPT` |
-| AI model | `MODEL` |
-| Max reply length | `MAX_TOKENS` |
-| Add a new language | `LANGUAGES` + `DETECTION_RULES` |
-
----
-
-## API Endpoints
-
-| Method | Route | Description |
-|--------|-------|-------------|
-| `GET` | `/` | Serves the chat page |
-| `GET` | `/languages` | Returns supported language config (JSON) |
-| `POST` | `/chat` | Accepts messages array, returns AI reply + translations |
-
-### POST /chat — example request
-
-```json
-{
-  "messages": [
-    { "role": "user", "content": "Bonjour, comment allez-vous?" }
-  ]
-}
-```
-
-### POST /chat — example response
-
-```json
-{
-  "reply":           "Je vais très bien, merci! Comment puis-je vous aider?",
-  "lang":            "fr",
-  "langInfo":        { "label": "FR", "flag": "🇫🇷", "name": "Français", "bcp47": "fr-FR", "voicePrefix": "fr" },
-  "translation":     "I'm doing very well, thank you! How can I help you?",
-  "userTranslation": "Hello, how are you?"
-}
-```
-
-`translation` and `userTranslation` are `null` when the language is English.
-
----
-
-## Browser Support
-
-| Browser | Voice Input (STT) | Voice Output (TTS) |
-|---------|-------------------|--------------------|
-| Chrome  | Best | Best |
-| Edge    | Good | Good |
-| Firefox | No STT | TTS only |
-| Safari  | Limited | Good |
-
-**Use Chrome for the best experience.**
+| Variable | Default | Description |
+|----------|---------|-------------|
+| OLLAMA_BASE_URL | http://localhost:11434 | Ollama server address |
+| CHAT_MODEL | unset | Overrides the default model name |
+| OLLAMA_TIMEOUT | 120 | Timeout for model responses in seconds |
+| FLASK_PORT | 5000 | Port used by Flask |
+| FLASK_DEBUG | true | Enables Flask debug mode |
 
 ---
 
 ## Troubleshooting
 
-### SSL / Certificate error (corporate networks)
-
-If you see `CERTIFICATE_VERIFY_FAILED`, your network uses SSL inspection. This is already handled by the `truststore` package in `requirements.txt`, which makes Python use your OS certificate store. Just make sure it is installed:
-
-```bash
-pip install truststore
-```
-
-### No voice output for Chinese
-
-The browser needs a Chinese TTS voice installed on your OS.
-
-**Windows:**
-1. Settings → Time & Language → Language & Region
-2. Add language → **Chinese (Simplified, China)**
-3. Make sure **Text-to-speech** is checked during install
-4. Restart Chrome
-
-### Wrong flag shown on user bubble
-
-The flag is guessed client-side before the server responds, using character and common-word patterns. If a word like "Bonjour" (no accented characters) is misidentified, the server's detection still corrects the AI reply's flag. The client-side guesser covers the most common words for each language.
-
 ### Ollama connection errors
 
-If `/chat` returns a connection error, make sure the Ollama server is running (`ollama serve`, or the desktop app) and the model in `.env → CHAT_MODEL` has been pulled (`ollama list`).
+If the app cannot reach Ollama, make sure the Ollama server is running and that the model has been pulled:
+
+```bash
+ollama serve
+ollama list
+ollama pull aisingapore/Gemma-SEA-LION-v4-4B-VL
+```
+
+### Voice input does not work
+
+Use Chrome or Edge, and make sure your browser has microphone permission enabled.
+
+### No speech output for some languages
+
+Some browsers need the relevant speech voice installed on the operating system. If TTS sounds missing or incorrect, install the preferred language voice in your OS settings and restart the browser.
+

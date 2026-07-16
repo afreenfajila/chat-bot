@@ -1,0 +1,14 @@
+.git
+.gitignore
+.env
+.env.example
+__pycache__/
+*.pyc
+.claude/
+Dockerfile
+docker-compose.yml
+.dockerignore
+README.md
+CLAUDE.md
+start.bat
+certs/

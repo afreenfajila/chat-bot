@@ -42,7 +42,7 @@ Non-English messages and replies also show an English translation below each cha
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/afreenfajila/chat-bot.git
+git clone ~~repo~~
 cd chat-bot
 ```
 
@@ -75,6 +75,34 @@ python app.py
 ```
 
 Open your browser at http://localhost:5000
+
+---
+
+## Run with Docker
+
+The project ships with a `Dockerfile` and `docker-compose.yml` that run everything in containers — no local Python or Ollama install needed, only [Docker Desktop](https://www.docker.com/products/docker-desktop/).
+
+```bash
+docker compose up --build
+```
+
+This starts three services:
+
+| Service | Purpose |
+|---------|---------|
+| `ollama` | Runs the Ollama model server, with models stored in a named volume |
+| `ollama-pull` | One-shot job that downloads the SEA-LION model (3.3 GB, first run only), then exits |
+| `web` | The Flask app, reachable at http://localhost:5000 |
+
+The first start downloads the model into the `ollama-models` volume; later starts reuse it and come up in seconds. The web container waits for the model pull to finish before starting.
+
+Notes:
+
+- Inside the Docker network, the app reaches Ollama at `http://ollama:11434` (set via `OLLAMA_BASE_URL` in `docker-compose.yml`) — no code changes needed.
+- The model in the containers is separate from any model pulled on your host machine.
+- To change the model, edit `CHAT_MODEL` in `docker-compose.yml` and the `ollama-pull` entrypoint.
+- To stop everything: `docker compose down` (add `-v` to also delete the downloaded model).
+- With an NVIDIA GPU, add a `deploy.resources.reservations.devices` block to the `ollama` service for much faster replies; on CPU, expect slower responses.
 
 ---
 

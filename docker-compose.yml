@@ -1,0 +1,54 @@
+# The ./certs/corporate-ca.crt mount + update-ca-certificates in each service
+# makes the containers trust the corporate TLS-inspection proxy (Zscaler).
+# On networks without SSL inspection these lines are harmless but the file
+# must exist; see README "Run with Docker".
+services:
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama-models:/root/.ollama   # persists pulled models across restarts
+      - ./certs/corporate-ca.crt:/usr/local/share/ca-certificates/corporate-ca.crt:ro
+    entrypoint: ["/bin/sh", "-c", "update-ca-certificates && exec ollama serve"]
+    healthcheck:
+      # `ollama ls` only succeeds once the server is accepting requests
+      test: ["CMD", "ollama", "ls"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  # One-shot job: pulls the model into the shared volume, then exits.
+  # Re-runs are fast no-ops once the model is in the volume.
+  ollama-pull:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    volumes:
+      - ./certs/corporate-ca.crt:/usr/local/share/ca-certificates/corporate-ca.crt:ro
+    entrypoint: ["/bin/sh", "-c", "update-ca-certificates && exec ollama pull aisingapore/Gemma-SEA-LION-v4-4B-VL"]
+    restart: "no"
+
+  web:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - CHAT_MODEL=aisingapore/Gemma-SEA-LION-v4-4B-VL
+      - OLLAMA_TIMEOUT=180
+      - FLASK_DEBUG=false
+    volumes:
+      - ./certs/corporate-ca.crt:/usr/local/share/ca-certificates/corporate-ca.crt:ro
+    # app.py uses truststore (system trust store), so installing the corporate
+    # CA here also fixes HTTPS scraping of the IRAS website.
+    entrypoint: ["/bin/sh", "-c", "update-ca-certificates && exec python app.py"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+      ollama-pull:
+        condition: service_completed_successfully
+
+volumes:
+  ollama-models:

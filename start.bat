@@ -11,14 +11,11 @@ if errorlevel 1 (
     exit /b 1
 )
 
-:: Check .env exists
-if not exist .env (
-    echo.
-    echo  ERROR: .env file not found.
-    echo  Run this first:
-    echo    copy .env.example .env
-    echo  Then open .env and add your ANTHROPIC_API_KEY.
-    echo.
+:: Check Ollama is available
+ollama --version >nul 2>&1
+if errorlevel 1 (
+    echo  ERROR: Ollama not found. Install it from https://ollama.com and run:
+    echo    ollama pull aisingapore/Gemma-SEA-LION-v4-4B-VL
     pause
     exit /b 1
 )

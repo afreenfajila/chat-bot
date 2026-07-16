@@ -28,7 +28,7 @@ from bs4 import BeautifulSoup
 from flask import Flask, request, jsonify, render_template
 from anthropic import Anthropic
 from dotenv import load_dotenv
-from prompts import SYSTEM_PROMPT, MODEL, MAX_TOKENS, LANGUAGES, detect_language
+from prompts import SYSTEM_PROMPT, MODEL, MAX_TOKENS, COMPLETION_MAX_TOKENS, LANGUAGES, detect_language
 
 # ── Load environment variables from .env ───────────────────────────────────
 load_dotenv(Path(__file__).parent / ".env", override=True)
@@ -180,20 +180,25 @@ def _complete_reply(reply: str, lang_code: str) -> str:
         return reply
 
     text = reply.strip()
+    if not text:
+        return reply
 
-    # Quick heuristics for truncation / incompleteness
+    # Quick heuristics for truncation / incompleteness.
+    incomplete = False
+
     if text.endswith(('...', '…')):
         incomplete = True
-    else:
-        incomplete = False
 
-    # Unmatched parentheses/brackets often indicate truncation
+    # Unmatched parentheses/brackets often indicate truncation.
     if text.count('(') != text.count(')') or text.count('[') != text.count(']'):
         incomplete = True
 
-    # If last character is a letter or digit and there's no terminal punctuation,
-    # ask the model to finish (helps when the model stops mid-sentence).
-    if text and text[-1].isalnum() and text[-1] not in '.!?।':
+    # A trailing comma, colon, dash or opening quote often means the model stopped early.
+    if text.endswith((',', ':', ';', '-', '—', '–', '“', '‘', '"', "'")):
+        incomplete = True
+
+    # If the response ends in a letter/digit without terminal punctuation, ask the model to finish.
+    if text and text[-1].isalnum() and not re.search(r"[.!?。！？]$", text):
         incomplete = True
 
     if not incomplete:
@@ -210,12 +215,13 @@ def _complete_reply(reply: str, lang_code: str) -> str:
 
         response = client.messages.create(
             model=MODEL,
-            max_tokens=128,
+            max_tokens=COMPLETION_MAX_TOKENS,
             system=system,
             messages=[{"role": "user", "content": reply}],
         )
 
-        return response.content[0].text if response.content else reply
+        completed = response.content[0].text if response.content else reply
+        return completed.strip() or reply
     except Exception:
         return reply
 
@@ -325,11 +331,12 @@ def chat():
 
     reply = response.content[0].text if response.content else "…"
 
-    # ── Detect language of the reply for the frontend ──
+    # Ensure the reply is not truncated; finish it if necessary.
+    reply = _complete_reply(reply, detect_language(reply))
+
+    # Detect the final language for the frontend after completion.
     lang_code = detect_language(reply)
     lang_info = LANGUAGES.get(lang_code, LANGUAGES["en"])
-    # Ensure the reply is not truncated; finish if necessary
-    reply = _complete_reply(reply, lang_code)
 
     return jsonify({
         "reply":      reply,

@@ -27,8 +27,9 @@ Your rules:
 # ── Model Settings ─────────────────────────────────────────────────────────
 # Swap MODEL to "claude-sonnet-4-6" for higher quality at higher cost.
 
-MODEL      = "claude-haiku-4-5-20251001"
-MAX_TOKENS = 512
+MODEL                  = "claude-haiku-4-5-20251001"
+MAX_TOKENS             = 768
+COMPLETION_MAX_TOKENS = 256
 
 # ── Supported Languages ────────────────────────────────────────────────────
 # Used by the backend for validation and by the frontend for UI display.

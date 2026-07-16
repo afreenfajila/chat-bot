@@ -18,7 +18,17 @@ const Speech = (() => {
     return new Promise(resolve => {
       const v = synth.getVoices();
       if (v.length) { resolve(v); return; }
-      synth.onvoiceschanged = () => resolve(synth.getVoices());
+
+      let resolved = false;
+      const finish = () => {
+        if (resolved) return;
+        resolved = true;
+        resolve(synth.getVoices());
+      };
+      synth.onvoiceschanged = finish;
+      // Fallback: onvoiceschanged doesn't always fire (or already fired) —
+      // resolve with whatever is available rather than hanging forever.
+      setTimeout(finish, 1000);
     });
   }
 
@@ -68,7 +78,10 @@ const Speech = (() => {
 
   // ── Getters ────────────────────────────────────────────────────────────
   const getIsRecording = () => isRecording;
-  const getIsSpeaking  = () => isSpeaking;
+  // Ask the synthesiser for its real state rather than trusting our flag:
+  // Chrome can kill an utterance without firing onend, which would leave a
+  // local flag stuck at true and make the play button unresponsive.
+  const getIsSpeaking  = () => synth.speaking || synth.pending;
   const isSTTSupported = () => !!(window.SpeechRecognition || window.webkitSpeechRecognition);
 
   // ── Speech Recognition (STT) ───────────────────────────────────────────
@@ -139,8 +152,32 @@ const Speech = (() => {
    * @param {number}  rate       — speech rate (0.8 slow / 1 normal / 1.25 fast)
    * @param {object}  callbacks  — onStart, onEnd
    */
+  // Chrome silently kills utterances that run longer than ~15 seconds, so
+  // long replies are spoken as a queue of sentence-sized chunks instead.
+  function splitIntoChunks(text, maxLen = 180) {
+    const sentences = text.replace(/\s+/g, ' ').match(/[^.!?。！？]+[.!?。！？]*/g) || [text];
+    const chunks = [];
+    let current = '';
+    for (const s of sentences) {
+      if (current && (current + s).length > maxLen) {
+        chunks.push(current.trim());
+        current = s;
+      } else {
+        current += s;
+      }
+    }
+    if (current.trim()) chunks.push(current.trim());
+    return chunks;
+  }
+
   async function speak(text, langInfo, rate, { onStart, onEnd, onNoVoice } = {}) {
-    if (isSpeaking) synth.cancel();
+    // Clear any queued or stuck speech first. Chrome needs a short pause
+    // between cancel() and speak(), or the new utterance never starts.
+    if (synth.speaking || synth.pending || synth.paused) {
+      synth.cancel();
+      await new Promise(r => setTimeout(r, 60));
+    }
+    isSpeaking = false;
 
     const voices = await getVoices();
 
@@ -151,21 +188,41 @@ const Speech = (() => {
       return;
     }
 
-    const utter  = new SpeechSynthesisUtterance(text);
     const defaultRate = langInfo.voicePrefix === 'en' ? 0.85 : 0.92;
-    utter.rate   = Math.max(0.75, Math.min(rate || defaultRate, 1.0));
-    utter.pitch  = 1.0;
-    utter.volume = 1;
-    utter.lang   = langInfo.bcp47;
-    utter.voice  = matched;
+    const finalRate   = Math.max(0.75, Math.min(rate || defaultRate, 1.0));
 
-    utter.onstart = () => { isSpeaking = true; onStart?.(); };
+    const chunks = splitIntoChunks(text);
+    let ended = false;
+    const done = () => {
+      if (ended) return;
+      ended = true;
+      isSpeaking = false;
+      onEnd?.();
+    };
 
-    const done = () => { isSpeaking = false; onEnd?.(); };
-    utter.onend   = done;
-    utter.onerror = done;
+    chunks.forEach((chunk, i) => {
+      const utter  = new SpeechSynthesisUtterance(chunk);
+      utter.rate   = finalRate;
+      utter.pitch  = 1.0;
+      utter.volume = 1;
+      utter.lang   = langInfo.bcp47;
+      utter.voice  = matched;
 
-    synth.speak(utter);
+      if (i === 0) {
+        utter.onstart = () => { isSpeaking = true; onStart?.(); };
+      }
+      if (i === chunks.length - 1) {
+        utter.onend = done;
+      }
+      // Any error (including cancellation) stops the rest of the queue and
+      // resets the play button via onEnd.
+      utter.onerror = () => { synth.cancel(); done(); };
+
+      synth.speak(utter);
+    });
+
+    // Chrome can leave the synthesiser paused after a cancel; nudge it.
+    synth.resume();
   }
 
   function stopSpeaking() {

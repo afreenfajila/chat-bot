@@ -204,25 +204,31 @@ function handlePlayButton(text, langInfo, playBtn) {
 // ── Utility: best-guess lang info before server responds ───────────────────
 // Used only for showing the user bubble immediately (before /chat returns).
 function guessLangCodeFromText(text) {
-  if (/[\u0B80-\u0BFF]/.test(text))
+  if (/[\u0B80-\u0BFF]/.test(text) ||
+      /\b(vanakkam|eppadi|epdi|irukinga|irukeenga|irukku|iruku|nandri|enna|yenna|seri|sollunga|venum|vendam|panna|pannunga|ungalukku|unakku|enakku|romba|konjam)\b/i.test(text))
     return 'ta';
 
-  if (/[\u0D80-\u0DFF]/.test(text))
-    return 'si';
+  if (/[\u0E00-\u0E7F]/.test(text))
+    return 'th';
 
-  if (/[\u0980-\u09FF]/.test(text))
-    return 'bn';
+  if (/[\u1000-\u109F]/.test(text))
+    return 'my';
 
   if (/[一-鿿㐀-䶿豈-﫿]/.test(text))
     return 'zh';
 
-  if (/[àâæçéèêëîïôœùûüÿ]/i.test(text) ||
-      /\b(je|tu|il|elle|nous|vous|ils|elles|est|sont|avec|pour|dans|que|qui|pas|sur|une|les|des|mon|ton|son|bonjour|merci|oui|non|bonsoir|salut|comment|va)\b/i.test(text))
-    return 'fr';
+  if (/[ăâđêôơưẠ-ỹ]/i.test(text) ||
+      /\b(và|của|là|có|không|tôi|bạn|anh|chị|em|này|được|cho|với|xin|chào|cảm|ơn|nhé|rồi|vâng|gì|sao)\b/i.test(text))
+    return 'vi';
 
-  if (/[áéíóúüñ¿¡]/i.test(text) ||
-      /\b(yo|ella|nosotros|ellos|con|para|hola|gracias|buenos|dias|buenas|estas|tengo|quiero)\b/i.test(text))
-    return 'es';
+  if (/\b(ang|ng|mga|ako|ikaw|siya|kami|tayo|hindi|opo|po|salamat|kumusta|magandang|umaga|gabi|paano|ano|dito|naman|natin)\b/i.test(text))
+    return 'fil';
+
+  if (/\b(tak|nak|awak|korang|khabar|macam|boleh|kat|cakap|pukul|kenapa|mana|sini|tolong)\b/i.test(text))
+    return 'ms';
+
+  if (/\b(tidak|bisa|aku|kamu|kalian|anda|sudah|belum|sedang|gimana|banget|sekarang|kabar|bagaimana|apakah|selamat|pagi|malam)\b/i.test(text))
+    return 'id';
 
   return 'en';
 }

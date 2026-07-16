@@ -6,7 +6,7 @@ Flask backend for the multilingual voice chat app.
 Routes:
   GET  /           → serves the main HTML page
   GET  /languages  → returns supported language config (for frontend)
-  POST /chat       → sends a message to Claude, returns the reply
+  POST /chat       → sends a message to the local Ollama model, returns the reply
 
 Run:
   pip install -r requirements.txt
@@ -19,6 +19,8 @@ truststore.inject_into_ssl()
 import os
 import json
 import re
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 from functools import lru_cache
@@ -26,7 +28,6 @@ from functools import lru_cache
 import requests
 from bs4 import BeautifulSoup
 from flask import Flask, request, jsonify, render_template
-from anthropic import Anthropic
 from dotenv import load_dotenv
 from prompts import SYSTEM_PROMPT, MODEL, MAX_TOKENS, COMPLETION_MAX_TOKENS, LANGUAGES, detect_language
 
@@ -36,16 +37,34 @@ load_dotenv(Path(__file__).parent / ".env", override=True)
 # ── Flask app setup ────────────────────────────────────────────────────────
 app = Flask(__name__)
 
-# ── Anthropic client ───────────────────────────────────────────────────────
-api_key = os.getenv("ANTHROPIC_API_KEY")
-if not api_key or api_key.startswith("sk-ant-api03-your"):
-    raise EnvironmentError(
-        "\n\n  ❌  ANTHROPIC_API_KEY is not set.\n"
-        "  Open .env and replace the placeholder with your real API key.\n"
-        "  Get one at: https://console.anthropic.com\n"
-    )
+# ── Ollama (local model) setup ─────────────────────────────────────────────
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
-client = Anthropic(api_key=api_key)
+# CHAT_MODEL in .env overrides the default model from prompts.py
+# (must be a model available in `ollama list`).
+MODEL = os.getenv("CHAT_MODEL", MODEL)
+
+# Local inference can be slow on CPU, so allow a generous timeout.
+OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", 120))
+
+
+def ollama_chat(messages: list[dict], system: str, max_tokens: int) -> str:
+    """Send a chat request to the local Ollama server and return the reply text."""
+    response = requests.post(
+        urljoin(OLLAMA_BASE_URL, "/api/chat"),
+        json={
+            "model": MODEL,
+            "messages": [{"role": "system", "content": system}] + messages,
+            "stream": False,
+            # Keep the model loaded between requests so replies don't pay
+            # the model-load cost after idle periods (Ollama default is 5m).
+            "keep_alive": "30m",
+            "options": {"num_predict": max_tokens},
+        },
+        timeout=OLLAMA_TIMEOUT,
+    )
+    response.raise_for_status()
+    return response.json()["message"]["content"]
 
 IRAS_ROOT_URL = "https://www.iras.gov.sg"
 IRAS_SITEMAP_URL = urljoin(IRAS_ROOT_URL, "/sitemap")
@@ -55,7 +74,7 @@ USER_AGENT_HEADER = {
 }
 
 
-def fetch_url_html(url: str, timeout: int = 12) -> str | None:
+def fetch_url_html(url: str, timeout: int = 8) -> str | None:
     try:
         response = requests.get(url, headers=USER_AGENT_HEADER, timeout=timeout)
         response.raise_for_status()
@@ -94,45 +113,59 @@ def tokenize(text: str) -> set[str]:
     return {token.lower() for token in re.findall(r"\w+", text) if len(token) > 1}
 
 
-def score_iras_link(query: str, url: str) -> int:
-    query_tokens = tokenize(query)
-    score = 0
-    lower_url = url.lower()
-    for token in query_tokens:
-        if token in lower_url:
-            score += 2
-    return score
-
-
 def find_best_iras_pages(query: str, max_results: int = 5) -> list[str]:
     links = get_iras_sitemap_links()
-    if not links:
-        return [IRAS_ROOT_URL]
+    query_tokens = tokenize(query)
 
-    scored = [(score_iras_link(query, url), url) for url in links]
-    scored = [item for item in scored if item[0] > 0]
+    scored = []
+    for url in links:
+        lower_url = url.lower()
+        score = sum(2 for token in query_tokens if token in lower_url)
+        if score:
+            scored.append((score, url))
+
+    # No link matches the query (greetings, non-tax questions, non-English
+    # tokens): unrelated pages never yield evidence, so skip scraping entirely.
     if not scored:
-        return links[:max_results]
+        return []
 
     scored.sort(key=lambda item: item[0], reverse=True)
     return [url for _, url in scored[:max_results]]
 
 
-def extract_relevant_sections(query: str, url: str, max_sections: int = 2) -> list[tuple[str, str]]:
+# Extracted page text is cached per URL so repeat questions on the same topic
+# skip both the network fetch and the HTML parse. Failed fetches are not
+# cached, so a temporarily unreachable page is retried on a later request.
+_page_texts_cache: dict[str, tuple[str, ...]] = {}
+
+
+def get_page_texts(url: str) -> tuple[str, ...]:
+    """Return the visible section texts of a page, cached per URL."""
+    cached = _page_texts_cache.get(url)
+    if cached is not None:
+        return cached
+
     html = fetch_url_html(url)
     if not html:
-        return []
+        return ()
 
     soup = BeautifulSoup(html, "html.parser")
     for bad in soup(["script", "style", "nav", "header", "footer", "aside", "form", "noscript"]):
         bad.decompose()
 
+    texts = tuple(
+        text
+        for node in soup.select("h1, h2, h3, p, li")
+        if (text := node.get_text(" ", strip=True))
+    )
+    _page_texts_cache[url] = texts
+    return texts
+
+
+def extract_relevant_sections(query: str, url: str, max_sections: int = 2) -> list[tuple[int, str]]:
     query_tokens = tokenize(query)
     sections = []
-    for node in soup.select("h1, h2, h3, p, li"):
-        text = node.get_text(" ", strip=True)
-        if not text:
-            continue
+    for text in get_page_texts(url):
         lower = text.lower()
         matches = sum(1 for token in query_tokens if token in lower)
         if matches:
@@ -146,6 +179,11 @@ def get_iras_evidence(query: str) -> tuple[str | None, list[str]]:
     urls = find_best_iras_pages(query, max_results=6)
     if not urls:
         return None, []
+
+    # Fetch all candidate pages concurrently: wall time is the slowest single
+    # fetch instead of the sum of up to six sequential ones.
+    with ThreadPoolExecutor(max_workers=len(urls)) as pool:
+        list(pool.map(get_page_texts, urls))
 
     evidence = []
     source_urls: list[str] = []
@@ -213,14 +251,11 @@ def _complete_reply(reply: str, lang_code: str) -> str:
             "Reply ONLY with the completed text."
         )
 
-        response = client.messages.create(
-            model=MODEL,
-            max_tokens=COMPLETION_MAX_TOKENS,
+        completed = ollama_chat(
+            [{"role": "user", "content": reply}],
             system=system,
-            messages=[{"role": "user", "content": reply}],
+            max_tokens=COMPLETION_MAX_TOKENS,
         )
-
-        completed = response.content[0].text if response.content else reply
         return completed.strip() or reply
     except Exception:
         return reply
@@ -247,7 +282,7 @@ def get_languages():
 def chat():
     """
     Accept a conversation history from the frontend,
-    send it to Claude, and return the AI reply.
+    send it to the local Ollama model, and return the AI reply.
 
     Expected JSON body:
     {
@@ -297,19 +332,20 @@ def chat():
         selected_lang = LANGUAGES[detected_lang]
         effective_system_prompt += (
             f"\n\nThe user message appears to be in {selected_lang['name']}. "
-            f"Always reply in {selected_lang['name']} in the same language as the user."
+            f"Always reply in {selected_lang['name']} in the same language as the user. "
+            f"Do not reply in any other language."
         )
 
-        if detected_lang in {"ta", "bn", "si"}:
+        if detected_lang in {"ta", "th", "my"}:
             effective_system_prompt += (
-                "\n\nWhen replying in Tamil, Bengali, or Sinhala, use the native script only. "
+                "\n\nWhen replying in Tamil, Thai, or Burmese, use the native script only. "
                 "Do not mix scripts, transliterations, or Roman letters."
             )
-            if detected_lang == "si":
-                effective_system_prompt += (
-                    "\n\nWhen replying in Sinhala, use Sinhala script and Sinhala numerals only. "
-                    "Do not use Bengali or Myanmar digits."
-                )
+        elif detected_lang in {"id", "ms"}:
+            effective_system_prompt += (
+                "\n\nDo not mix Indonesian and Malay. Reply strictly in "
+                f"{selected_lang['name']} vocabulary and spelling."
+            )
 
     if iras_source_text:
         effective_system_prompt += (
@@ -318,18 +354,15 @@ def chat():
             f"IRAS source content:\n{iras_source_text}"
         )
 
-    # ── Call Claude ──
+    # ── Call the local model ──
     try:
-        response = client.messages.create(
-            model=MODEL,
-            max_tokens=MAX_TOKENS,
+        reply = ollama_chat(
+            messages,
             system=effective_system_prompt,
-            messages=messages,
-        )
+            max_tokens=MAX_TOKENS,
+        ) or "…"
     except Exception as e:
         return jsonify({"error": str(e)}), 502
-
-    reply = response.content[0].text if response.content else "…"
 
     # Ensure the reply is not truncated; finish it if necessary.
     reply = _complete_reply(reply, detect_language(reply))
@@ -345,10 +378,32 @@ def chat():
     })
 
 
+def _warm_up():
+    """Preload the sitemap and the model so the first request is fast."""
+    try:
+        get_iras_sitemap_links()
+    except Exception:
+        pass
+    try:
+        # A generate request without a prompt just loads the model into memory.
+        requests.post(
+            urljoin(OLLAMA_BASE_URL, "/api/generate"),
+            json={"model": MODEL, "keep_alive": "30m"},
+            timeout=OLLAMA_TIMEOUT,
+        )
+    except Exception:
+        pass
+
+
 # ── Entry point ────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     port  = int(os.getenv("FLASK_PORT", 5000))
     debug = os.getenv("FLASK_DEBUG", "true").lower() == "true"
+
+    # In debug mode the reloader runs this module twice; only warm up in the
+    # process that actually serves requests.
+    if not debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+        threading.Thread(target=_warm_up, daemon=True).start()
 
     print(f"\n  VoiceChat is running -> http://localhost:{port}\n")
     app.run(host="0.0.0.0", port=port, debug=debug)

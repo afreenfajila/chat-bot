@@ -2,8 +2,8 @@
 
 ## What this project is
 
-A Flask + Anthropic Claude web app for multilingual voice chat.
-Users speak or type in English, Spanish, French, or Chinese; Claude replies in the same language (text + TTS). Non-English messages and replies show an English translation below each chat bubble.
+A Flask web app for multilingual voice chat, powered by a local SEA-LION model served by Ollama.
+Users speak or type in English, Chinese, Tamil, Thai, Vietnamese, Indonesian, Malay, Filipino, or Burmese (SEA-LION's focus languages); the model replies in the same language (text + TTS). Non-English messages and replies show an English translation below each chat bubble.
 
 ---
 
@@ -19,14 +19,14 @@ pip install -r requirements.txt && python app.py
 
 Server runs at **http://localhost:5000**. Requires Chrome or Edge for voice input.
 
-Set `ANTHROPIC_API_KEY` in `.env` before starting.
+Requires [Ollama](https://ollama.com) running locally with the model from `.env → CHAT_MODEL` pulled (`ollama pull aisingapore/Gemma-SEA-LION-v4-4B-VL`). No API key needed.
 
 ---
 
 ## Project layout
 
 ```
-app.py          Flask server — routes, Claude API calls, translation logic
+app.py          Flask server — routes, Ollama model calls, translation logic
 prompts.py      SYSTEM_PROMPT, MODEL, MAX_TOKENS, LANGUAGES, detect_language()
 templates/
   index.html    Single-page chat UI (rendered by Flask)
@@ -35,7 +35,7 @@ static/
   js/app.js     Main controller: history, fetch /chat, wires UI + Speech
   js/speech.js  Web Speech API — STT (mic) and TTS (voice output)
   js/ui.js      Pure DOM layer: addBubble(), addTranslation(), status bar
-.env            ANTHROPIC_API_KEY (never committed)
+.env            Local settings: CHAT_MODEL, OLLAMA_BASE_URL (never committed)
 .env.example    Template for .env
 requirements.txt
 start.bat       Windows one-command launcher
@@ -45,10 +45,11 @@ start.bat       Windows one-command launcher
 
 ## Key architecture decisions
 
-- **API key never reaches the browser.** All Claude calls happen in `app.py`.
+- **All model calls happen server-side in `app.py`**, via `ollama_chat()` against the local Ollama server's `/api/chat` endpoint. No cloud API, no API key.
 - **Language config is defined once** in `prompts.py → LANGUAGES` and served to the frontend via `GET /languages`. Do not duplicate language data in JS.
 - **Language detection runs server-side** in `detect_language()`. The client-side `guessLangInfoFromText()` in `app.js` is only used to show the user bubble immediately (before the server responds) and mirrors the same logic.
-- **Translation is a second Claude call** inside `_translate_to_english()` in `app.py`. It only fires when the detected language is not English.
+- **Translation is a second model call** inside `_translate_to_english()` in `app.py`. It only fires when the detected language is not English.
+- **IRAS scraping is cached and parallel.** Extracted page text is cached in-process per URL (`_page_texts_cache`), candidate pages are fetched concurrently, and scraping is skipped entirely when no sitemap URL matches the query (e.g. greetings). The sitemap and model are pre-warmed at startup, and Ollama keeps the model loaded for 30 minutes between requests.
 - **User bubble is shown immediately**, then updated with `userTranslation` after the server responds via `UI.addTranslation()`.
 
 ---
@@ -65,9 +66,9 @@ start.bat       Windows one-command launcher
 
 ```json
 {
-  "reply":           "Bonjour! Comment puis-je vous aider?",
-  "lang":            "fr",
-  "langInfo":        { "label": "FR", "flag": "🇫🇷", "name": "Français", "bcp47": "fr-FR", "voicePrefix": "fr" },
+  "reply":           "Xin chào! Tôi có thể giúp gì cho bạn?",
+  "lang":            "vi",
+  "langInfo":        { "label": "VI", "flag": "🇻🇳", "name": "Tiếng Việt", "bcp47": "vi-VN", "voicePrefix": "vi" },
   "translation":     "Hello! How can I help you?",
   "userTranslation": "Hello, how are you today?"
 }
@@ -95,7 +96,7 @@ The client-side `guessLangInfoFromText()` in `app.js` mirrors the same two-step 
 
 1. **`prompts.py → LANGUAGES`** — add an entry with `label`, `flag`, `name`, `bcp47`, `voicePrefix`.
 2. **`prompts.py → DETECTION_RULES`** — add a rule with `lang`, `char_pattern`, `word_pattern`. Insert it before the most general rules.
-3. **`prompts.py → SYSTEM_PROMPT`** — mention the new language in rule 1 so Claude knows to detect and reply in it.
+3. **`prompts.py → SYSTEM_PROMPT`** — mention the new language in rule 1 so the model knows to detect and reply in it.
 4. **`app.js → guessLangInfoFromText()`** — add a matching client-side pattern so the user bubble flag shows immediately.
 
 No frontend changes needed for the badge list or language config — those are loaded dynamically from `/languages`.
@@ -124,7 +125,9 @@ FLASK_PORT=8080 FLASK_DEBUG=false python app.py
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ANTHROPIC_API_KEY` | required | Your Anthropic key |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Where the Ollama server listens |
+| `CHAT_MODEL` | unset | Overrides `MODEL` from `prompts.py` (must be in `ollama list`) |
+| `OLLAMA_TIMEOUT` | `120` | Seconds to wait for a model reply |
 | `FLASK_PORT` | `5000` | Port the server listens on |
 | `FLASK_DEBUG` | `true` | Flask debug/reload mode |
 
@@ -134,7 +137,8 @@ FLASK_PORT=8080 FLASK_DEBUG=false python app.py
 
 | Variable | Current value | Notes |
 |----------|--------------|-------|
-| `MODEL` | `claude-haiku-4-5-20251001` | Fast and cheap; swap to `claude-sonnet-4-6` for higher quality |
-| `MAX_TOKENS` | `512` | Max tokens for chat replies |
+| `MODEL` | `aisingapore/Gemma-SEA-LION-v4-4B-VL` | Local SEA-LION model, tuned for Southeast Asian languages |
+| `MAX_TOKENS` | `768` | Max tokens for chat replies |
+| `COMPLETION_MAX_TOKENS` | `256` | Max tokens when finishing a truncated reply |
 
 Translation calls use the same `MODEL` with `max_tokens=256`.

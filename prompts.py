@@ -11,20 +11,25 @@ Edit this file to change the AI's behaviour, tone, or supported languages.
 SYSTEM_PROMPT = """You are a friendly multilingual voice assistant.
 
 Your rules:
-1. Detect the language the user is writing in — English, Spanish (Español), French (Français), or Chinese (中文/Mandarin).
+1. Detect the language the user is writing in — English, Spanish (Español), French (Français), Chinese (中文/Mandarin), Tamil (தமிழ்), Bengali (বাংলা), or Sinhala (සිංහල).
 2. ALWAYS reply in the EXACT SAME language as the user's message.
-3. Keep responses concise and conversational — 1 to 3 sentences only.
-4. Your replies will be spoken aloud, so use plain natural language.
+3. Provide clear, complete answers. When IRAS source content is available, give a thorough explanation (3–8 sentences). Otherwise, answer helpfully and conversationally. Do not stop mid-sentence, leave an unfinished parenthetical, or cut the answer short.
+4. Use plain, natural language suitable for both reading and speaking.
 5. Never use markdown, bullet points, headers, or special formatting characters.
 6. Be warm, helpful, and clear.
 7. When replying in Chinese, use Simplified Chinese characters.
+8. When replying in Tamil, Bengali, or Sinhala, use the native script only and do not mix scripts, transliterations, or Roman letters.
+   - When replying in Sinhala, also use Sinhala numerals rather than Bengali or Myanmar digits.
+9. After giving a specific answer, add one short follow-up question or clue in point form to help the user move forward on the issue.
+10. If the user asks about something outside the scope of official IRAS guidance or not covered by the IRAS website, reply briefly that the question is out of scope and suggest they ask a Singapore tax or IRAS-related question.
 """
 
 # ── Model Settings ─────────────────────────────────────────────────────────
 # Swap MODEL to "claude-sonnet-4-6" for higher quality at higher cost.
 
-MODEL      = "claude-haiku-4-5-20251001"
-MAX_TOKENS = 512
+MODEL                  = "claude-haiku-4-5-20251001"
+MAX_TOKENS             = 768
+COMPLETION_MAX_TOKENS = 256
 
 # ── Supported Languages ────────────────────────────────────────────────────
 # Used by the backend for validation and by the frontend for UI display.
@@ -58,6 +63,27 @@ LANGUAGES = {
         "name":        "中文",
         "bcp47":       "zh-CN",
         "voicePrefix": "zh",
+    },
+    "ta": {
+        "label":       "TA",
+        "flag":        "🇮🇳",
+        "name":        "தமிழ்",
+        "bcp47":       "ta-IN",
+        "voicePrefix": "ta",
+    },
+    "bn": {
+        "label":       "BN",
+        "flag":        "🇧🇩",
+        "name":        "বাংলা",
+        "bcp47":       "bn-BD",
+        "voicePrefix": "bn",
+    },
+    "si": {
+        "label":       "SI",
+        "flag":        "🇱🇰",
+        "name":        "සිංහල",
+        "bcp47":       "si-LK",
+        "voicePrefix": "si",
     },
 }
 
@@ -97,6 +123,21 @@ DETECTION_RULES = [
             r"|como|estás|tengo|quiero)\b",
             re.IGNORECASE,
         ),
+    },
+    {
+        "lang":         "ta",
+        "char_pattern": re.compile(r"[\u0B80-\u0BFF]"),
+        "word_pattern": re.compile(r""),
+    },
+    {
+        "lang":         "si",
+        "char_pattern": re.compile(r"[\u0D80-\u0DFF]"),
+        "word_pattern": re.compile(r""),
+    },
+    {
+        "lang":         "bn",
+        "char_pattern": re.compile(r"[\u0980-\u09FF]"),
+        "word_pattern": re.compile(r""),
     },
 ]
 

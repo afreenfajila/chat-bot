@@ -82,7 +82,7 @@ const UI = (() => {
    * @param {string}      [translation] — English translation shown below bubble
    * @returns {HTMLElement}
    */
-  function addBubble(role, text, langInfo, onPlay, translation, source) {
+  function addBubble(role, text, langInfo, onPlay, source) {
     // Remove empty state on first message
     el('empty-state')?.remove();
 
@@ -113,13 +113,6 @@ const UI = (() => {
 
     div.appendChild(bubble);
 
-    if (translation) {
-      const transl = document.createElement('div');
-      transl.className   = 'translation';
-      transl.textContent = translation;
-      div.appendChild(transl);
-    }
-
     if (source) {
       const src = document.createElement('div');
       src.className   = 'source';
@@ -132,21 +125,6 @@ const UI = (() => {
     win.scrollTop = win.scrollHeight;
 
     return div;
-  }
-
-  /**
-   * Append an English translation to an existing bubble element.
-   * Used to update a user bubble after the server responds.
-   */
-  function addTranslation(msgEl, translation) {
-    if (!translation || !msgEl) return;
-    const transl = document.createElement('div');
-    transl.className   = 'translation';
-    transl.textContent = translation;
-    const meta = msgEl.querySelector('.msg-meta');
-    msgEl.insertBefore(transl, meta);
-    const win = el('chat-window');
-    win.scrollTop = win.scrollHeight;
   }
 
   function setPlayBtnState(pb, isPlaying) {
@@ -166,7 +144,6 @@ const UI = (() => {
     getVoiceSpeed,
     getAutoSpeak,
     addBubble,
-    addTranslation,
     setPlayBtnState,
   };
 

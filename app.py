@@ -28,7 +28,7 @@ from bs4 import BeautifulSoup
 from flask import Flask, request, jsonify, render_template
 from anthropic import Anthropic
 from dotenv import load_dotenv
-from prompts import SYSTEM_PROMPT, MODEL, MAX_TOKENS, LANGUAGES, detect_language
+from prompts import SYSTEM_PROMPT, MODEL, MAX_TOKENS, COMPLETION_MAX_TOKENS, LANGUAGES, detect_language
 
 # ── Load environment variables from .env ───────────────────────────────────
 load_dotenv(Path(__file__).parent / ".env", override=True)
@@ -168,6 +168,64 @@ def get_iras_evidence(query: str) -> tuple[str | None, list[str]]:
     return source_text, source_urls
 
 
+def _complete_reply(reply: str, lang_code: str) -> str:
+    """
+    Ensure the assistant reply is a complete, well-formed set of sentences.
+    If the reply appears truncated (unfinished parenthesis, trailing ellipsis,
+    or missing terminal punctuation), ask the model to finish the text in the
+    same language without adding new facts. Returns the original reply on
+    failure or when no completion is needed.
+    """
+    if not reply or not isinstance(reply, str):
+        return reply
+
+    text = reply.strip()
+    if not text:
+        return reply
+
+    # Quick heuristics for truncation / incompleteness.
+    incomplete = False
+
+    if text.endswith(('...', '…')):
+        incomplete = True
+
+    # Unmatched parentheses/brackets often indicate truncation.
+    if text.count('(') != text.count(')') or text.count('[') != text.count(']'):
+        incomplete = True
+
+    # A trailing comma, colon, dash or opening quote often means the model stopped early.
+    if text.endswith((',', ':', ';', '-', '—', '–', '“', '‘', '"', "'")):
+        incomplete = True
+
+    # If the response ends in a letter/digit without terminal punctuation, ask the model to finish.
+    if text and text[-1].isalnum() and not re.search(r"[.!?。！？]$", text):
+        incomplete = True
+
+    if not incomplete:
+        return reply
+
+    try:
+        lang_name = LANGUAGES.get(lang_code, {}).get('name', 'the user\'s language')
+        system = (
+            f"You are a concise assistant that only finishes partially-written replies. "
+            f"Complete the following reply in {lang_name} without adding new information. "
+            "Close any unfinished sentences or parentheses and ensure the text ends with proper punctuation. "
+            "Reply ONLY with the completed text."
+        )
+
+        response = client.messages.create(
+            model=MODEL,
+            max_tokens=COMPLETION_MAX_TOKENS,
+            system=system,
+            messages=[{"role": "user", "content": reply}],
+        )
+
+        completed = response.content[0].text if response.content else reply
+        return completed.strip() or reply
+    except Exception:
+        return reply
+
+
 # ── Routes ─────────────────────────────────────────────────────────────────
 
 @app.route("/")
@@ -183,20 +241,6 @@ def get_languages():
     Keeps language data in one place (prompts.py) rather than duplicating it in JS.
     """
     return jsonify(LANGUAGES)
-
-
-def _translate_to_english(text: str) -> str | None:
-    """Return an English translation of text using Claude, or None on failure."""
-    try:
-        response = client.messages.create(
-            model=MODEL,
-            max_tokens=256,
-            system="Translate the following text to English. Reply with only the translation, nothing else.",
-            messages=[{"role": "user", "content": text}],
-        )
-        return response.content[0].text if response.content else None
-    except Exception:
-        return None
 
 
 @app.route("/chat", methods=["POST"])
@@ -216,11 +260,9 @@ def chat():
 
     Response JSON:
     {
-      "reply":           "The AI's response text",
-      "lang":            "en",    ← detected language code
-      "langInfo":        { "label": "EN", "flag": "🇬🇧", ... },
-      "translation":     "English translation of reply (non-EN only)",
-      "userTranslation": "English translation of user message (non-EN only)"
+      "reply":      "The AI's response text",
+      "lang":       "en",    ← detected language code
+      "langInfo":   { "label": "EN", "flag": "🇬🇧", ... },
     }
     """
     data = request.get_json(silent=True)
@@ -258,6 +300,17 @@ def chat():
             f"Always reply in {selected_lang['name']} in the same language as the user."
         )
 
+        if detected_lang in {"ta", "bn", "si"}:
+            effective_system_prompt += (
+                "\n\nWhen replying in Tamil, Bengali, or Sinhala, use the native script only. "
+                "Do not mix scripts, transliterations, or Roman letters."
+            )
+            if detected_lang == "si":
+                effective_system_prompt += (
+                    "\n\nWhen replying in Sinhala, use Sinhala script and Sinhala numerals only. "
+                    "Do not use Bengali or Myanmar digits."
+                )
+
     if iras_source_text:
         effective_system_prompt += (
             "\n\nUse the following content from the official IRAS website to answer the user. "
@@ -278,32 +331,17 @@ def chat():
 
     reply = response.content[0].text if response.content else "…"
 
-    # ── Detect language of the reply for the frontend ──
+    # Ensure the reply is not truncated; finish it if necessary.
+    reply = _complete_reply(reply, detect_language(reply))
+
+    # Detect the final language for the frontend after completion.
     lang_code = detect_language(reply)
     lang_info = LANGUAGES.get(lang_code, LANGUAGES["en"])
 
-    # ── Translate non-English content to English ──
-    translation      = None
-    user_translation = None
-
-    if lang_code != "en":
-        translation = _translate_to_english(reply)
-
-    last_user_msg = next(
-        (m["content"] for m in reversed(messages) if m["role"] == "user"), None
-    )
-    last_user_lang = input_lang if input_lang != "auto" else (detect_language(last_user_msg) if last_user_msg else "en")
-    if last_user_msg and last_user_lang != "en":
-        user_translation = _translate_to_english(last_user_msg)
-
     return jsonify({
-        "reply":           reply,
-        "lang":            lang_code,
-        "langInfo":        lang_info,
-        "translation":     translation,
-        "userTranslation": user_translation,
-        "sourceText":      iras_source_text,
-        "sourceUrls":      iras_source_urls,
+        "reply":      reply,
+        "lang":       lang_code,
+        "langInfo":   lang_info,
     })
 
 

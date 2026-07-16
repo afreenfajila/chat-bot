@@ -142,7 +142,7 @@ async function handleUserMessage(text) {
     }
 
     const data = await res.json();
-    // data = { reply, lang, langInfo, translation, userTranslation }
+    // data = { reply, lang, langInfo }
 
     conversationHistory.push({ role: 'assistant', content: data.reply });
 
@@ -151,11 +151,9 @@ async function handleUserMessage(text) {
       conversationHistory = conversationHistory.slice(-MAX_HISTORY);
     }
 
-    UI.addTranslation(userBubbleEl, data.userTranslation);
-
     const msgEl = UI.addBubble('ai', data.reply, data.langInfo, (playBtn) => {
       handlePlayButton(data.reply, data.langInfo, playBtn);
-    }, data.translation, data.sourceText);
+    });
 
     UI.setTranscript('Tap the mic to speak again…');
     UI.setStatus('', 'ready');
@@ -206,6 +204,15 @@ function handlePlayButton(text, langInfo, playBtn) {
 // ── Utility: best-guess lang info before server responds ───────────────────
 // Used only for showing the user bubble immediately (before /chat returns).
 function guessLangCodeFromText(text) {
+  if (/[\u0B80-\u0BFF]/.test(text))
+    return 'ta';
+
+  if (/[\u0D80-\u0DFF]/.test(text))
+    return 'si';
+
+  if (/[\u0980-\u09FF]/.test(text))
+    return 'bn';
+
   if (/[一-鿿㐀-䶿豈-﫿]/.test(text))
     return 'zh';
 

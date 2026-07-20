@@ -21,21 +21,16 @@ import json
 import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 from urllib.parse import urljoin, urlparse
 from functools import lru_cache
 
 import requests
 from bs4 import BeautifulSoup
 from flask import Flask, request, jsonify, render_template
-from dotenv import load_dotenv
 from prompts import (
     SYSTEM_PROMPT, MODEL, MAX_TOKENS, COMPLETION_MAX_TOKENS,
     LANGUAGES, UI_STRINGS, SERVICES, detect_language,
 )
-
-# ── Load environment variables from .env ───────────────────────────────────
-load_dotenv(Path(__file__).parent / ".env", override=True)
 
 # ── Flask app setup ────────────────────────────────────────────────────────
 app = Flask(__name__)
@@ -43,7 +38,7 @@ app = Flask(__name__)
 # ── Ollama (local model) setup ─────────────────────────────────────────────
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
-# CHAT_MODEL in .env overrides the default model from prompts.py
+# CHAT_MODEL env var overrides the default model from prompts.py
 # (must be a model available in `ollama list`).
 MODEL = os.getenv("CHAT_MODEL", MODEL)
 

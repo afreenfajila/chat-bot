@@ -2,6 +2,10 @@
 # makes the containers trust the corporate TLS-inspection proxy (Zscaler).
 # On networks without SSL inspection these lines are harmless but the file
 # must exist; see README "Run with Docker".
+
+# Single place to change the model — used by both ollama-pull and web.
+x-chat-model: &chat-model aisingapore/Gemma-SEA-LION-v4-4B-VL
+
 services:
   ollama:
     image: ollama/ollama:latest
@@ -24,10 +28,11 @@ services:
       ollama:
         condition: service_healthy
     environment:
-      - OLLAMA_HOST=http://ollama:11434
+      OLLAMA_HOST: http://ollama:11434
+      CHAT_MODEL: *chat-model
     volumes:
       - ./certs/corporate-ca.crt:/usr/local/share/ca-certificates/corporate-ca.crt:ro
-    entrypoint: ["/bin/sh", "-c", "update-ca-certificates && exec ollama pull aisingapore/Gemma-SEA-LION-v4-4B-VL"]
+    entrypoint: ["/bin/sh", "-c", "update-ca-certificates && exec ollama pull \"$$CHAT_MODEL\""]
     restart: "no"
 
   web:
@@ -35,10 +40,10 @@ services:
     ports:
       - "5000:5000"
     environment:
-      - OLLAMA_BASE_URL=http://ollama:11434
-      - CHAT_MODEL=aisingapore/Gemma-SEA-LION-v4-4B-VL
-      - OLLAMA_TIMEOUT=180
-      - FLASK_DEBUG=false
+      OLLAMA_BASE_URL: http://ollama:11434
+      CHAT_MODEL: *chat-model
+      OLLAMA_TIMEOUT: "180"
+      FLASK_DEBUG: "false"
     volumes:
       - ./certs/corporate-ca.crt:/usr/local/share/ca-certificates/corporate-ca.crt:ro
     # app.py uses truststore (system trust store), so installing the corporate

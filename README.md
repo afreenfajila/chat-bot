@@ -29,62 +29,19 @@ Non-English messages and replies also show an English translation below each cha
 
 ---
 
-## Requirements
+## Quick Start (Docker — recommended)
 
-- Python 3.9 or newer
-- Chrome or Edge for the best voice input experience
-- Ollama installed and running locally
-
----
-
-## Quick Start
-
-### 1. Clone the repository
+Everything runs in containers — no local Python or Ollama install needed, only [Docker Desktop](https://www.docker.com/products/docker-desktop/). All configuration lives in `docker-compose.yml`; there is no `.env` file to set up.
 
 ```bash
 git clone ~~repo~~
 cd chat-bot
-```
-
-### 2. Pull the model
-
-Install Ollama and pull the SEA-LION model:
-
-```bash
-ollama pull aisingapore/Gemma-SEA-LION-v4-4B-VL
-```
-
-### 3. Install dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### 4. Run the app
-
-Windows:
-
-```bat
-start.bat
-```
-
-Mac / Linux:
-
-```bash
-python app.py
-```
-
-Open your browser at http://localhost:5000
-
----
-
-## Run with Docker
-
-The project ships with a `Dockerfile` and `docker-compose.yml` that run everything in containers — no local Python or Ollama install needed, only [Docker Desktop](https://www.docker.com/products/docker-desktop/).
-
-```bash
 docker compose up --build
 ```
+
+Open your browser at http://localhost:5000 (Chrome or Edge for voice input).
+
+> **Important:** always start the app with `docker compose up` from the repo root — not by `docker run`-ing the web image on its own. Compose starts the Ollama server, downloads the model, and wires the containers together on a shared network. A standalone `docker run` has no Ollama to talk to, which shows up as connection errors to `http://ollama:11434/api/chat` (or `localhost:11434` on older builds).
 
 This starts three services:
 
@@ -100,9 +57,23 @@ Notes:
 
 - Inside the Docker network, the app reaches Ollama at `http://ollama:11434` (set via `OLLAMA_BASE_URL` in `docker-compose.yml`) — no code changes needed.
 - The model in the containers is separate from any model pulled on your host machine.
-- To change the model, edit `CHAT_MODEL` in `docker-compose.yml` and the `ollama-pull` entrypoint.
+- To change the model, edit the `x-chat-model` anchor at the top of `docker-compose.yml` — both the model pull and the app read from that single value.
 - To stop everything: `docker compose down` (add `-v` to also delete the downloaded model).
 - With an NVIDIA GPU, add a `deploy.resources.reservations.devices` block to the `ollama` service for much faster replies; on CPU, expect slower responses.
+
+---
+
+## Run locally without Docker (alternative)
+
+Requires Python 3.9+ and [Ollama](https://ollama.com) installed on your machine.
+
+```bash
+ollama pull aisingapore/Gemma-SEA-LION-v4-4B-VL
+pip install -r requirements.txt
+python app.py        # or start.bat on Windows
+```
+
+Open your browser at http://localhost:5000. Configuration is via plain environment variables (see table below) — defaults work out of the box.
 
 ---
 
@@ -154,7 +125,7 @@ chat-bot/
 
 ## Environment Variables
 
-The app uses the following optional environment variables:
+All settings are optional environment variables with working defaults — there is no `.env` file. With Docker they are set in `docker-compose.yml`; for local runs, set them in your shell if needed.
 
 | Variable | Default | Description |
 |----------|---------|-------------|

@@ -10,16 +10,19 @@ Users speak or type in English, Chinese, Tamil, Thai, Vietnamese, Indonesian, Ma
 ## How to run
 
 ```bash
-# Windows (installs deps + starts server)
+# Docker (recommended — starts Ollama, pulls the model, runs the app)
+docker compose up --build
+
+# Windows local run (installs deps + starts server)
 start.bat
 
-# Mac / Linux
+# Mac / Linux local run
 pip install -r requirements.txt && python app.py
 ```
 
 Server runs at **http://localhost:5000**. Requires Chrome or Edge for voice input.
 
-Requires [Ollama](https://ollama.com) running locally with the model from `.env → CHAT_MODEL` pulled (`ollama pull aisingapore/Gemma-SEA-LION-v4-4B-VL`). No API key needed.
+Local (non-Docker) runs require [Ollama](https://ollama.com) running locally with the model pulled (`ollama pull aisingapore/Gemma-SEA-LION-v4-4B-VL`). No API key needed. There is **no `.env` file** — configuration is plain environment variables with working defaults; Docker values are set in `docker-compose.yml`.
 
 ---
 
@@ -35,10 +38,10 @@ static/
   js/app.js     Main controller: history, fetch /chat, wires UI + Speech
   js/speech.js  Web Speech API — STT (mic) and TTS (voice output)
   js/ui.js      Pure DOM layer: addBubble(), addTranslation(), status bar
-.env            Local settings: CHAT_MODEL, OLLAMA_BASE_URL (never committed)
-.env.example    Template for .env
 requirements.txt
 start.bat       Windows one-command launcher
+Dockerfile      Web app image (env defaults for running on the compose network)
+docker-compose.yml  ollama + ollama-pull + web; model name set once via x-chat-model anchor
 ```
 
 ---
@@ -125,9 +128,11 @@ FLASK_PORT=8080 FLASK_DEBUG=false python app.py
 
 ## Environment variables
 
+Set as plain environment variables (no `.env` file). In Docker they are set in `docker-compose.yml` / the `Dockerfile`.
+
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | Where the Ollama server listens |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Where the Ollama server listens (`http://ollama:11434` in Docker) |
 | `CHAT_MODEL` | unset | Overrides `MODEL` from `prompts.py` (must be in `ollama list`) |
 | `OLLAMA_TIMEOUT` | `120` | Seconds to wait for a model reply |
 | `FLASK_PORT` | `5000` | Port the server listens on |

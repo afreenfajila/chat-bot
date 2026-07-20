@@ -323,6 +323,25 @@ def _strip_urls(text: str) -> str:
     return text.strip()
 
 
+def _format_reply_structure(text: str) -> str:
+    """Put numbered points and the closing question on their own lines.
+
+    The system prompt asks for this layout, but the small model often runs
+    everything together inline ("intro. 1. point. 2. point. Question?"), so
+    the line breaks are inserted deterministically here. The frontend bubble
+    renders newlines via `white-space: pre-line`.
+    """
+    # Break before each inline enumerator ("1.", "2)", "3、") that follows the
+    # end of a sentence or an introductory colon. `\s*` (not `+`) also catches
+    # CJK text, which has no space after 。！？：
+    text = re.sub(r"(?<=[.!?。！？:：])\s*(?=\d{1,2}[.)、]\s*\S)", "\n", text)
+    # Break before the final follow-up question when it trails another
+    # sentence on the same line. The lookahead requires the remainder to be a
+    # single sentence (no other sentence-ending punctuation) ending in ?
+    text = re.sub(r"(?<=[.!?。！？])[ \t]*(?=[^\n.!?。！？]+[?？]\s*$)", "\n", text)
+    return text
+
+
 @app.route("/services")
 def get_services():
     """
@@ -426,6 +445,10 @@ def chat():
     # comply (and sometimes hallucinate links) — strip them defensively.
     # Real source links are returned separately in "sources".
     reply = _strip_urls(reply)
+
+    # Likewise, enforce the scannable layout (numbered points and the
+    # follow-up question on their own lines) that the model often skips.
+    reply = _format_reply_structure(reply)
 
     # Detect the final language for the frontend after completion.
     lang_code = detect_language(reply)

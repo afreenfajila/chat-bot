@@ -284,13 +284,36 @@ header {
 .send-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
 /* ── Status Bar ── */
+#status-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 18px;
+}
+
 #status-bar {
   text-align: center;
   font-size: 0.72rem;
   color: var(--muted);
   font-family: 'DM Mono', monospace;
-  min-height: 18px;
   letter-spacing: 0.5px;
+}
+
+#stop-voice-btn {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 2px 10px;
+  font-size: 0.72rem;
+  font-family: 'DM Mono', monospace;
+  color: var(--danger);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+#stop-voice-btn:hover {
+  border-color: var(--danger);
+  background: var(--border);
 }
 #status-bar.thinking { color: var(--accent); }
 #status-bar.speaking { color: var(--accent3); }
@@ -360,6 +383,11 @@ header {
 .chip:hover {
   border-color: var(--accent);
   background: var(--border);
+}
+
+.chip:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .chips-done .chip {

@@ -50,6 +50,14 @@ const UI = (() => {
     el('mic-btn').disabled   = disabled;
     el('send-btn').disabled  = disabled;
     el('text-input').disabled = disabled;
+    // Guide chips (welcome flow / guiding questions) also send messages,
+    // so they must be blocked while a reply is pending too.
+    document.querySelectorAll('.chip').forEach((c) => { c.disabled = disabled; });
+  }
+
+  // ── Stop-voice button (next to the status bar) ─────────────────────────
+  function setStopVoiceVisible(visible) {
+    el('stop-voice-btn').hidden = !visible;
   }
 
   function getTextInputValue()  { return el('text-input').value.trim(); }
@@ -204,6 +212,7 @@ const UI = (() => {
     setTranscript,
     setMicRecording,
     setInputsDisabled,
+    setStopVoiceVisible,
     getTextInputValue,
     getTextInputLang,
     clearTextInput,

@@ -141,7 +141,13 @@ const Speech = (() => {
 
   function stopRecognition() {
     isRecording = false;
-    try { recognition?.stop(); } catch (_) {}
+    if (!recognition) return;
+    // Detach result/error handlers before aborting: a plain stop() can still
+    // deliver a pending final transcript, which would send the discarded
+    // recording as a message (e.g. into a freshly started chat).
+    recognition.onresult = null;
+    recognition.onerror  = null;
+    try { recognition.abort(); } catch (_) {}
   }
 
   // ── Text-to-Speech (TTS) ───────────────────────────────────────────────

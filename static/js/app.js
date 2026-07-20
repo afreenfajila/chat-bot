@@ -14,6 +14,13 @@ let conversationHistory  = [];  // [{ role, content }, ...]
 let selectedInputLang    = 'auto';
 const MAX_HISTORY        = 20;
 
+// Only one /chat request may be in flight at a time — otherwise replies can
+// come back out of order and get attached to the wrong message.
+let isAwaitingReply      = false;
+// Bumped on 🔄 New chat so a reply still in flight for the old conversation
+// is discarded instead of landing in the fresh one.
+let chatGeneration       = 0;
+
 // ── Boot ───────────────────────────────────────────────────────────────────
 async function init() {
   await loadLanguages();
@@ -119,10 +126,21 @@ function speakGuide(text, langCode, onSpokenStart) {
     onStart: () => {
       onSpokenStart?.();
       UI.setStatus('speaking', '🔊 Speaking…');
+      UI.setStopVoiceVisible(true);
     },
-    onEnd:   () => UI.setStatus('', 'ready'),
+    onEnd: () => {
+      UI.setStatus('', 'ready');
+      UI.setStopVoiceVisible(false);
+    },
     onNoVoice: () => {},   // welcome speech is optional — fail silently
   });
+}
+
+// Stop any voice-over (welcome/guide bubbles or replies) immediately.
+function stopVoiceOver() {
+  Speech.stopSpeaking();
+  UI.setStopVoiceVisible(false);
+  UI.setStatus('', 'ready');
 }
 
 // Match spoken/typed text (e.g. "Tamil", "中文") to a language code.
@@ -178,7 +196,20 @@ function showGuidingQuestions(lang, topicKey) {
 // ── New chat: reset history and restart the welcome flow ──────────────────
 function startNewChat() {
   if (Speech.getIsSpeaking()) Speech.stopSpeaking();
+  UI.setStopVoiceVisible(false);
+
+  // A recording still running would deliver the old session's speech into
+  // the fresh chat — kill it along with any typed draft.
+  if (Speech.getIsRecording()) Speech.stopRecognition();
+  UI.setMicRecording(false);
+  UI.clearTextInput();
+
+  chatGeneration++;            // orphan any reply still in flight
+  isAwaitingReply = false;
+  UI.setInputsDisabled(false);
+
   conversationHistory = [];
+  setChatLanguage('auto');     // language is re-picked in the welcome flow
   UI.clearChat();
   UI.setTranscript('Tap the mic to start speaking…');
   UI.setStatus('', 'ready');
@@ -195,6 +226,9 @@ function bindEvents() {
 
   document.getElementById('new-chat-btn')
     ?.addEventListener('click', startNewChat);
+
+  document.getElementById('stop-voice-btn')
+    ?.addEventListener('click', stopVoiceOver);
 
   document.getElementById('input-lang-select')
     .addEventListener('change', (e) => {
@@ -213,7 +247,7 @@ function bindEvents() {
 // ── Mic Toggle ─────────────────────────────────────────────────────────────
 function toggleMic() {
   if (Speech.getIsSpeaking()) {
-    Speech.stopSpeaking();
+    stopVoiceOver();
   }
 
   if (Speech.getIsRecording()) {
@@ -272,6 +306,13 @@ function sendTextMessage() {
 async function handleUserMessage(text) {
   if (!text.trim()) return;
 
+  // One question at a time: while a reply is pending, new messages are
+  // ignored so answers can never get attached to the wrong question.
+  if (isAwaitingReply) {
+    UI.setStatus('thinking', '⟳ Still answering your previous message — please wait…');
+    return;
+  }
+
   // While the language picker is open, spoken or typed input picks the
   // language ("Tamil", "中文", …) instead of being sent to the model.
   if (pendingLangPicker) {
@@ -296,6 +337,8 @@ async function handleUserMessage(text) {
   const userLangInfo = languages[effectiveInputLang] || guessLangInfoFromText(text);
   const userBubbleEl = UI.addBubble('user', text, userLangInfo);
 
+  const gen = chatGeneration;   // detect a 🔄 New chat happening mid-request
+  isAwaitingReply = true;
   UI.setInputsDisabled(true);
   UI.setStatus('thinking', '⟳ Thinking…');
 
@@ -314,6 +357,9 @@ async function handleUserMessage(text) {
 
     const data = await res.json();
     // data = { reply, lang, langInfo }
+
+    // The chat was reset while this request was in flight — drop the reply.
+    if (gen !== chatGeneration) return;
 
     conversationHistory.push({ role: 'assistant', content: data.reply });
 
@@ -335,13 +381,19 @@ async function handleUserMessage(text) {
     }
 
   } catch (error) {
+    if (gen !== chatGeneration) return;   // chat was reset — nothing to clean up
     // Remove failed user message from history
     conversationHistory.pop();
     UI.setStatus('error', `✗ ${error.message}`);
     UI.setTranscript('Something went wrong. Check the terminal for details.');
+  } finally {
+    // After a reset, startNewChat() already re-enabled the fresh chat's
+    // inputs — a stale request must not touch shared state.
+    if (gen === chatGeneration) {
+      isAwaitingReply = false;
+      UI.setInputsDisabled(false);
+    }
   }
-
-  UI.setInputsDisabled(false);
 }
 
 // ── TTS ────────────────────────────────────────────────────────────────────
@@ -349,14 +401,17 @@ function speakReply(text, langInfo, playBtn) {
   Speech.speak(text, langInfo, UI.getVoiceSpeed(), {
     onStart: () => {
       UI.setStatus('speaking', '🔊 Speaking…');
+      UI.setStopVoiceVisible(true);
       UI.setPlayBtnState(playBtn, true);
     },
     onEnd: () => {
       UI.setStatus('', 'ready');
+      UI.setStopVoiceVisible(false);
       UI.setPlayBtnState(playBtn, false);
     },
     onNoVoice: (msg) => {
       UI.setStatus('error', `✗ ${msg}`);
+      UI.setStopVoiceVisible(false);
       UI.setPlayBtnState(playBtn, false);
     },
   });
@@ -364,9 +419,8 @@ function speakReply(text, langInfo, playBtn) {
 
 function handlePlayButton(text, langInfo, playBtn) {
   if (Speech.getIsSpeaking()) {
-    Speech.stopSpeaking();
+    stopVoiceOver();
     UI.setPlayBtnState(playBtn, false);
-    UI.setStatus('', 'ready');
   } else {
     speakReply(text, langInfo, playBtn);
   }

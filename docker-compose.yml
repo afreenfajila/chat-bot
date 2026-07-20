@@ -1,7 +1,9 @@
-# The ./certs/corporate-ca.crt mount + update-ca-certificates in each service
-# makes the containers trust the corporate TLS-inspection proxy (Zscaler).
-# On networks without SSL inspection these lines are harmless but the file
-# must exist; see README "Run with Docker".
+# The ./certs mount + update-ca-certificates in each service makes the
+# containers trust a corporate TLS-inspection proxy (Zscaler), if any CA
+# certs are present. certs/ is always present (tracked via certs/README.md)
+# and mounted as a whole directory, so this works unmodified whether or not
+# a given machine needs a corporate CA — nobody has to edit this file.
+# See certs/README.md.
 
 # Single place to change the model — used by both ollama-pull and web.
 x-chat-model: &chat-model aisingapore/Gemma-SEA-LION-v4-4B-VL
@@ -11,7 +13,7 @@ services:
     image: ollama/ollama:latest
     volumes:
       - ollama-models:/root/.ollama   # persists pulled models across restarts
-      - ./certs/corporate-ca.crt:/usr/local/share/ca-certificates/corporate-ca.crt:ro
+      - ./certs:/usr/local/share/ca-certificates/extra:ro
     entrypoint: ["/bin/sh", "-c", "update-ca-certificates && exec ollama serve"]
     healthcheck:
       # `ollama ls` only succeeds once the server is accepting requests
@@ -31,7 +33,7 @@ services:
       OLLAMA_HOST: http://ollama:11434
       CHAT_MODEL: *chat-model
     volumes:
-      - ./certs/corporate-ca.crt:/usr/local/share/ca-certificates/corporate-ca.crt:ro
+      - ./certs:/usr/local/share/ca-certificates/extra:ro
     entrypoint: ["/bin/sh", "-c", "update-ca-certificates && exec ollama pull \"$$CHAT_MODEL\""]
     restart: "no"
 
@@ -45,7 +47,7 @@ services:
       OLLAMA_TIMEOUT: "180"
       FLASK_DEBUG: "false"
     volumes:
-      - ./certs/corporate-ca.crt:/usr/local/share/ca-certificates/corporate-ca.crt:ro
+      - ./certs:/usr/local/share/ca-certificates/extra:ro
     # app.py uses truststore (system trust store), so installing the corporate
     # CA here also fixes HTTPS scraping of the IRAS website.
     entrypoint: ["/bin/sh", "-c", "update-ca-certificates && exec python app.py"]

@@ -60,6 +60,7 @@ Notes:
 - To change the model, edit the `x-chat-model` anchor at the top of `docker-compose.yml` — both the model pull and the app read from that single value.
 - To stop everything: `docker compose down` (add `-v` to also delete the downloaded model).
 - With an NVIDIA GPU, add a `deploy.resources.reservations.devices` block to the `ollama` service for much faster replies; on CPU, expect slower responses.
+- **On a corporate network with TLS inspection (e.g. Zscaler),** `ollama pull` or the IRAS scraping may fail with certificate errors. Drop your corporate root CA `.crt` file into `certs/` (see `certs/README.md`) — no `docker-compose.yml` edits needed, and machines that don't need it can leave `certs/` empty.
 
 ---
 
